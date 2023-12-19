@@ -1,0 +1,328 @@
+def score_function(_, average="macro"):
+    global Y_TRUE_EVAL, Y_PRED_EVAL
+    return f1_score(Y_TRUE_EVAL, Y_PRED_EVAL, average="samples")
+
+def output_transform(output: dict):
+    raise NotImplementedError("TODO")
+
+def create_metrics():
+    raise NotImplementedError("TODO")
+
+def count_parameters(model, trainable_only=True):
+    if trainable_only:
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    else:
+        return sum(p.numel() for p in model.parameters())
+
+
+Y_TRUE = []
+Y_PRED = []
+
+Y_TRUE_EVAL = []
+Y_PRED_EVAL = []
+
+## THIS IS AN AUTO-GENERATED SCRIPT FOR TRAINING AND EVALUATING A UNIMODAL MODEL!
+## Fill in the FILL_ME_INs and TODOs and you should be good to go!
+## Does not handle multimodal models or multimodal association models. These are generated separately.
+if __name__ == "__main__":
+    exp_name = TODO
+    header(exp_name)
+    
+    modality = TODO
+    missing_modality = TODO
+    model_path = None
+
+    
+    mode = "train"
+    
+    seed = 42
+    device = init_exp_backend(seed=seed, device="cuda")
+    
+    epochs = FILL_ME_IN
+    batch_size = FILL_ME_IN
+    learning_rate = FILL_ME_IN
+    weight_decay = FILL_ME_IN
+    
+    score_fn_name = TODO
+    score_fn = partial(score_function)
+    
+    checkpoints_dir = "./checkpoints"
+    tensorboard_dir = "./tensorboard"
+    
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    os.makedirs(tensorboard_dir, exist_ok=True)
+    
+    tb_logger = TensorboardLogger(log_dir=tensorboard_dir)
+    
+    
+    box_print(
+        header="General",
+        exp=exp_name,
+        device=device,
+        mode=mode,
+        modality=modality,
+        missing_modality=missing_modality,
+    )
+    
+    ##############################
+    ## Datasets and Dataloaders ##
+    ##############################
+    if mode == "train":
+        train_dataset = FILL_ME_IN
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        
+        val_dataset = FILL_ME_IN
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        
+    if mode == "test":
+        test_dataset = FILL_ME_IN
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        
+    
+    ####################
+    ## Model Creation ##
+    ####################
+    model = FILL_ME_IN
+    model = model.to(device)
+    
+    
+    ###################################
+    ## Loss, Optimizer and Scheduler ##
+    ###################################
+    
+    optimizer = FILL_ME_IN(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    criterion = FILL_ME_IN
+    scheduler = None
+    
+    
+    if mode == "train":
+        train_fn = partial(train_unimodal, model=model, optimizer=optimizer, criterion=criterion, device=device)
+        trainer = Engine(train_fn)
+        
+        eval_fn = partial(eval_unimodal, model=model, criterion=criterion, device=device)
+        evaluator = Engine(eval_fn)
+    elif mode == "test":
+        eval_fn = partial(eval_unimodal, model=model, criterion=criterion, device=device)
+        evaluator = Engine(eval_fn)
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+        
+    metrics = create_metrics()
+    for metric_name, metric in metrics.items():
+        metric.attach(trainer, metric_name)
+        metric.attach(evaluator, metric_name)
+    
+    
+    ##################################
+    ## Checkpoints & Early Stopping ##
+    ##################################
+    checkpoint_handler = ModelCheckpoint(
+        f"{checkpoints_dir}/{exp_name}",
+        exp_name,
+        n_saved=10,
+        require_empty=False,
+        score_name=score_fn_name,
+        score_function=score_fn,
+    )
+
+    evaluator.add_event_handler(
+        Events.EPOCH_COMPLETED, checkpoint_handler, {"model": model}
+    )
+    
+    box_print(
+        header="Parameters",
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=learning_rate,
+        weight_decay=weight_decay,
+        optimizer=optimizer,
+        scheduler=scheduler.__class__.__name__,
+        loss_fn=criterion,
+    )
+
+    if mode == "train":
+        box_print(header="Data", train_size=len(train_dataset), batched_train_size=len(train_loader), train_batch_size=batch_size, val_size=len(val_dataset), batched_val_size=len(val_loader), val_batch_size=batch_size)
+    elif mode == "test":
+        box_print(header="Data", test_size=len(test_dataset), batched_test_size=len(test_loader),test_batch_size=batch_size)
+    
+    
+    box_print(header="Model", model_name=model.__class__.__name__, num_params=count_parameters(model), model=model)
+    
+    
+    tb_logger.attach_output_handler(
+        trainer,
+        event_name=Events.EPOCH_COMPLETED,
+        tag="training",
+        metric_names=list(metrics.keys()),
+        global_step_transform=global_step_from_engine(trainer),
+    )
+
+    # Attach the logger to the evaluator on the validation dataset and log NLL, Accuracy metrics after
+    # each epoch. We setup `global_step_transform=global_step_from_engine(trainer)` to take the epoch of the
+    # `trainer` instead of `evaluator`.
+    tb_logger.attach_output_handler(
+        evaluator,
+        event_name=Events.EPOCH_COMPLETED,
+        tag="validation",
+        metric_names=list(metrics.keys()),
+        global_step_transform=global_step_from_engine(trainer),
+    )
+
+    tb_logger.attach_opt_params_handler(
+        trainer,
+        event_name=Events.ITERATION_STARTED,
+        optimizer=optimizer,
+        param_name="lr",  # optional
+    )
+
+
+    ###################
+    ## Progress Bars ##
+    ###################
+    BAR_FMT = "{desc:<15} Epoch: {epochs:<10} [{n_fmt}/{total_fmt}]|{bar}| {rate_fmt}{postfix}"
+
+    LOSS_FMT = "|| {0:<15} | {1:<8.4f} ||"
+    METRIC_FMT = "|| {0:<15} | {1:<8.4f} ||"
+
+    train_pb = ProgressBar(
+        persist=True,
+        ncols=100,
+        bar_format=BAR_FMT,
+        desc="Training",
+        colour="#56B4E9",
+    )
+    train_pb.attach(trainer)
+
+    validation_pb = ProgressBar(
+        persist=True, bar_format=BAR_FMT, ncols=100, desc="Validation", colour="#009E73"
+    )
+    validation_pb.attach(evaluator)
+    
+    ###############################
+    ## Fancy printing of results ##
+    ###############################
+    console = Console()
+
+    def _log_metrics(train, eval):
+        if len(train) == 0:
+            rows = ["EVAL"]
+        else:
+            rows = ["TRAIN", "EVAL"]
+        columms = eval.keys()
+
+        ## use pandas to create a df of the metrics and then use tabulate to print the table
+        df = pd.DataFrame(columns=columms, index=rows)
+        if len(train) != 0:
+            df.loc["TRAIN"] = train
+        # else:
+        #     df.loc["TRAIN"] = np.NaN
+        df.loc["EVAL"] = eval
+
+        df = df.round(5)
+
+        ## convert all columns to percentange except for loss
+        for column in df.columns:
+            if column != "loss":
+                df[column] = df[column] * 100.0
+
+        if mode == "test":
+            target_cols = ["F1-weighted", "F1-samples", "F1-micro", "F1-macro"]
+            sub_df = df[target_cols]
+            sub_df = sub_df.round(2)
+            ltx = sub_df.to_latex()
+
+            missing = "_" + str(missing_modality) if missing_modality else ""
+
+            with open(os.path.join("./", f"{exp_name + missing + '.tex'}"), "w") as f:
+                f.write(ltx)
+
+        markdown = tabulate(df, headers="keys", tablefmt="github")
+        markdown = Markdown(markdown)
+        console.print(markdown)
+        console.print("\\n")
+        
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def epoch_completed(engine):
+        evaluator.run(val_loader, max_epochs=1)
+        global Y_TRUE, Y_PRED, Y_TRUE_EVAL, Y_PRED_EVAL
+        
+        train_metrics = engine.state.metrics
+        eval_metrics = evaluator.state.metrics
+        
+        # train_metrics["f1_samples"] = f1_score(Y_TRUE, Y_PRED, average="samples")
+        train_metrics["f1_weighted"] = f1_score(Y_TRUE, Y_PRED, average="weighted")
+        train_metrics["f1_micro"] = f1_score(Y_TRUE, Y_PRED, average="micro")
+        train_metrics["f1_macro"] = f1_score(Y_TRUE, Y_PRED, average="macro")
+        
+        # eval_metrics["f1_samples"] = f1_score(Y_TRUE_EVAL, Y_PRED_EVAL, average="samples")
+        eval_metrics["f1_weighted"] = f1_score(
+            Y_TRUE_EVAL, Y_PRED_EVAL, average="weighted"
+        )
+        eval_metrics["f1_micro"] = f1_score(Y_TRUE_EVAL, Y_PRED_EVAL, average="micro")
+        eval_metrics["f1_macro"] = f1_score(Y_TRUE_EVAL, Y_PRED_EVAL, average="macro")
+
+        train_metrics_df = handle_metrics(
+            train_metrics,
+            row_name="train",
+            table_fmt="github",
+            return_fmt="df",
+        )
+
+        val_metrics_df = handle_metrics(
+            val_metrics,
+            row_name="validation",
+            table_fmt="github",
+            return_fmt="df",
+        )
+
+        metrics_df = pd.concat(
+            [train_metrics_df, val_metrics_df], axis=0
+        )
+
+        console.print(
+            Markdown(metrics_df.to_markdown(tablefmt="github")),
+            markup=True,
+        )
+
+        header(f"Epoch {engine.state.epoch} Completed")
+
+        Y_TRUE.clear()
+        Y_PRED.clear()
+        Y_TRUE_EVAL.clear()
+        Y_PRED_EVAL.clear()
+        
+        if scheduler is not None:
+            scheduler.step()
+        return
+        
+    ##################
+    ## Run training ##
+    ##################
+    if mode == "train":
+        trainer.run(train_loader, max_epochs=epochs)
+    elif mode == "test":
+        for param in model.parameters():
+            param.requires_grad = False
+        model.load_state_dict(torch.load(model_path))
+
+        for metric_name, metric in metrics.items():
+            metric.attach(evaluator, metric_name)
+
+        @evaluator.on(Events.EPOCH_COMPLETED)
+        def test_epoch_completed(engine):
+            global Y_TRUE, Y_PRED, Y_TRUE_EVAL, Y_PRED_EVAL
+
+            eval_metrics = engine.state.metrics
+            # eval_metrics["f1_samples"] = f1_score(Y_TRUE_EVAL, Y_PRED_EVAL, average="samples")
+            eval_metrics["f1_weighted"] = f1_score(
+                Y_TRUE_EVAL, Y_PRED_EVAL, average="weighted"
+            )
+            eval_metrics["f1_micro"] = f1_score(
+                Y_TRUE_EVAL, Y_PRED_EVAL, average="micro"
+            )
+            eval_metrics["f1_macro"] = f1_score(
+                Y_TRUE_EVAL, Y_PRED_EVAL, average="macro"
+            )
+            _log_metrics({}, eval_metrics)
+
+        evaluator.run(test_loader, max_epochs=1)

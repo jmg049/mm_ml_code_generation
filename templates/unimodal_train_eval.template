@@ -1,0 +1,72 @@
+## AUTO-GENERATED
+def train_unimodal(_, batch, model, optimizer, criterion, device):
+    model.train()
+    for param in model.parameters():
+        param.requires_grad = True
+    optimizer.zero_grad()
+    ## format is always going to be (id, mode, label)
+    _id, data, labels = batch
+    data = data.to(device)
+    labels = labels.to(device)
+    
+    ## forward pass
+    model_output, features = model(data)
+    
+    ## compute loss
+    loss = criterion(model_output, labels)
+    loss.backward()
+    optimizer.step()
+    
+    
+    for y_true, y_pred in zip(labels, model_output):
+        y_pred = y_pred.detach().cpu().numpy()
+        y_pred = (y_pred > 0.5).astype(int)
+
+        y_true = y_true.detach().cpu().numpy().astype(int)
+
+        Y_TRUE.append(y_true)
+        Y_PRED.append(y_pred)
+        
+        
+    return {
+        "loss": loss.item(),
+        "output": model_output,
+        "labels": labels,
+        "features": features
+    }
+
+## AUTO-GENERATED
+def eval_unimodal(_, batch, model, criterion, device):
+    global Y_TRUE_EVAL, Y_PRED_EVAL
+    
+    model.eval()
+    for param in model.parameters():
+        param.requires_grad = False
+    ## format is always going to be (id, mode, label)
+    _id, data, labels = batch
+    data = data.to(device)
+    labels = labels.to(device)
+    
+    ## forward pass
+    with torch.no_grad():
+        model_output, features = model(data)
+    
+    ## compute loss
+    loss = criterion(model_output, labels)
+    
+    for y_true, y_pred in zip(labels, model_output):
+        y_pred = y_pred.detach().cpu().numpy()
+        y_pred = (y_pred > 0.5).astype(int)
+
+        y_true = y_true.detach().cpu().numpy().astype(int)
+
+        Y_TRUE_EVAL.append(y_true)
+        Y_PRED_EVAL.append(y_pred)
+        
+    return {
+            "loss": loss.item(),
+            "output": model_output,
+            "labels": labels,
+            "features": features
+    }
+
